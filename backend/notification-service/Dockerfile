@@ -1,17 +1,13 @@
-# Étape 1 : Dépendances
-FROM node:20-alpine AS deps
+# Étape 1 : Build TypeScript -> JavaScript
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
+COPY tsconfig*.json ./
+COPY src ./src
+RUN npx @nestjs/cli build
 
-# Étape 2 : Build TypeScript -> JavaScript
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-# Étape 3 : Image finale d'exécution (Production)
+# Étape 2 : Image finale d'exécution (Production)
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
