@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # 1. Base de données PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: opstrack-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: opstrack_incidents
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Notification Service
+  notification-service:
+    build:
+      context: ./backend/notification-service
+      dockerfile: Dockerfile
+    container_name: opstrack-notification-service
+    restart: always
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+    ports:
+      - "3002:3002"
+
+  # 3. Incident Service
+  incident-service:
+    build:
+      context: ./backend/incident-service
+      dockerfile: Dockerfile
+    container_name: opstrack-incident-service
+    restart: always
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgrespassword
+      DB_DATABASE: opstrack_incidents
+      NOTIFICATION_SERVICE_URL: http://notification-service:3002/notifications
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notification-service:
+        condition: service_started
+
+  # 4. API Gateway
+  api-gateway:
+    build:
+      context: ./backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: opstrack-api-gateway
+    restart: always
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      INCIDENT_SERVICE_URL: http://incident-service:3001
+      NOTIFICATION_SERVICE_URL: http://notification-service:3002
+    ports:
+      - "3000:3000"
+    depends_on:
+      - incident-service
+      - notification-service
+
+  # 5. Frontend React Dashboard
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: opstrack-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+
+volumes:
+  postgres_data:
