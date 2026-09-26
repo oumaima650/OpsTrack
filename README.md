@@ -1,112 +1,110 @@
 # OpsTrack - Incident Management System
 
-OpsTrack is a microservices-based Incident Management application built with **NestJS**, **TypeORM**, **PostgreSQL / SQLite**, and **React (Vite)**.
+Plateforme DevOps cloud-native de bout en bout (Docker, CI/CD GitHub Actions, Kubernetes, Terraform/AWS) construite autour d'une application de gestion d'incidents en microservices (NestJS + React) — projet portfolio démontrant le cycle de vie complet **Conteneurisation → Orchestration → Infrastructure as Code**.
 
 ---
 
-##  Architecture Overview
+## Architecture Overview
 
-The application consists of 3 backend services and 1 frontend app:
+The application consists of 3 backend microservices, 1 frontend SPA, and a managed PostgreSQL database:
 
-1. **`api-gateway` (Port 3000)**: Central API Gateway routing requests to downstream services. Provides aggregated health checks (`/api/health`) and OpenAPI/Swagger documentation (`/api/docs`).
-2. **`incident-service` (Port 3001)**: Manages incident lifecycle (CRUD) backed by TypeORM (defaults to zero-setup SQLite, supports PostgreSQL). Triggers notifications on incident creation or status changes.
+1. **`api-gateway` (Port 3000)**: Central API Gateway routing requests to downstream microservices. Provides aggregated health checks (`/api/health`) and OpenAPI/Swagger documentation (`/api/docs`).
+2. **`incident-service` (Port 3001)**: Manages incident lifecycle (CRUD) backed by TypeORM (supports SQLite for zero-config local dev and PostgreSQL for production). Triggers notifications on incident creation or status changes.
 3. **`notification-service` (Port 3002)**: Microservice with REST endpoint (`POST /notifications`) logging incident alerts.
-4. **`frontend` (Port 5173)**: Modern React + Vite + TypeScript dashboard for managing incidents, viewing metrics, and monitoring Gateway health.
+4. **`frontend` (Port 80 / 5173)**: Modern React + Vite + TypeScript dashboard served via Nginx in production for managing incidents and monitoring system status.
 
 ---
 
-##  Project Structure
+## Project Structure
 
 ```
-d:/OpsTrack/
+.
 ├── backend/
 │   ├── api-gateway/          # NestJS API Gateway (Port 3000)
-│   ├── incident-service/     # NestJS Incident CRUD (Port 3001)
+│   ├── incident-service/     # NestJS Incident CRUD Service (Port 3001)
 │   └── notification-service/ # NestJS Notification Logger (Port 3002)
-├── frontend/                 # React + Vite + TypeScript (Port 5173)
+├── frontend/                 # React + Vite + TypeScript Dashboard (Port 80/5173)
+├── docker-compose.yml        # Docker Compose orchestration (PostgreSQL + Microservices)
+├── .dockerignore
+├── .gitignore
 └── README.md
 ```
 
 ---
 
-##  How to Run Locally (No Docker Required)
+##  How to Run with Docker (Recommended)
+
+### Prerequisites
+- **Docker Desktop** installed and running.
+
+### 1-Command Startup
+At the project root, run:
+
+```bash
+docker compose up --build
+```
+
+### Services Map
+
+| Service | Local URL | Container Port | Description |
+|---|---|---|---|
+| **Frontend Dashboard** | http://localhost | `80` | React Dashboard served via Nginx |
+| **API Gateway** | http://localhost:3000 | `3000` | Gateway & Swagger Docs (`/api/docs`) |
+| **Incident Service** | http://localhost:3001 | `3001` | Incident CRUD REST API |
+| **Notification Service** | http://localhost:3002 | `3002` | Event Notification REST Logger |
+| **PostgreSQL DB** | `localhost:5432` | `5432` | Database (`opstrack_incidents`) |
+
+---
+
+##  How to Run Locally (Without Docker)
 
 ### Prerequisites
 - **Node.js 20 LTS** (or v18+)
 - **npm** (v9+)
 
----
-
 ### Step 1: Install Dependencies
-
 ```bash
 # 1. Notification Service
-cd backend/notification-service
-npm install
+cd backend/notification-service && npm install
 
 # 2. Incident Service
-cd ../incident-service
-npm install
+cd ../incident-service && npm install
 
 # 3. API Gateway
-cd ../api-gateway
-npm install
+cd ../api-gateway && npm install
 
 # 4. Frontend
-cd ../../frontend
-npm install
+cd ../../frontend && npm install
 ```
 
----
-
 ### Step 2: Database Setup (Zero Configuration)
+By default, `incident-service` uses **SQLite** (`opstrack.sqlite`), requiring zero database setup.
 
-By default, `incident-service` uses **SQLite** (`opstrack.sqlite`), requiring **zero database installation or password setup**.
-
-If you wish to use a local **PostgreSQL** instance instead:
-Open `backend/incident-service/.env` and update:
+To use **PostgreSQL**, update `backend/incident-service/.env`:
 ```env
 DB_TYPE=postgres
 DB_HOST=localhost
 DB_PORT=5432
-DB_USERNAME=your_pg_user
-DB_PASSWORD=your_pg_password
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
 DB_DATABASE=opstrack_incidents
 ```
 
----
+### Step 3: Start Services Locally (Separate Terminals)
 
-### Step 3: Start Services Locally
-
-Start each service in a separate terminal:
-
-#### 1. Notification Service (Terminal 1)
 ```bash
-cd backend/notification-service
-npm run start:dev
-```
-*Runs on: http://localhost:3002 (Swagger: http://localhost:3002/api/docs)*
+# Terminal 1: Notification Service (Port 3002)
+cd backend/notification-service && npm run start:dev
 
-#### 2. Incident Service (Terminal 2)
-```bash
-cd backend/incident-service
-npm run start:dev
-```
-*Runs on: http://localhost:3001 (Swagger: http://localhost:3001/api/docs)*
+# Terminal 2: Incident Service (Port 3001)
+cd backend/incident-service && npm run start:dev
 
-#### 3. API Gateway (Terminal 3)
-```bash
-cd backend/api-gateway
-npm run start:dev
-```
-*Runs on: http://localhost:3000 (Swagger: http://localhost:3000/api/docs | Health: http://localhost:3000/api/health)*
+# Terminal 3: API Gateway (Port 3000)
+cd backend/api-gateway && npm run start:dev
 
-#### 4. Frontend Dashboard (Terminal 4)
-```bash
-cd frontend
-npm run dev
+# Terminal 4: Frontend (Port 5173)
+cd frontend && npm run dev
 ```
-*Runs on: http://localhost:5173*
 
 ---
 
