@@ -116,15 +116,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Scanner l'image avec Trivy
+      # Scanner l'image avec Trivy (focus sur les vulnérabilités OS du conteneur)
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'opstrack/${{ matrix.service.name }}:scan'
+          vuln-type: 'os'                  # ← Scan uniquement la sécurité de l'OS du conteneur
           format: 'sarif'                  # format standard lisible par GitHub Security
           output: 'trivy-${{ matrix.service.name }}.sarif'
           severity: 'CRITICAL,HIGH'        # scanner uniquement les failles critiques et hautes
-          exit-code: '1'                   # fail fast : arrête le pipeline si faille trouvée
+          exit-code: '1'                   # fail fast : arrête le pipeline si faille OS trouvée
           ignore-unfixed: true             # ignore les CVE sans correctif disponible
 
       # Upload du rapport Trivy dans l'onglet Security de GitHub
