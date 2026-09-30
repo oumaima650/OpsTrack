@@ -1,44 +1,180 @@
-name: Build & Push Docker Images to GHCR
+name: CI/CD — Test, Scan & Push Docker Images
 
-# Déclenchement : à chaque push sur la branche main
+# Déclenchement : push sur main OU pull request vers main
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
 env:
   REGISTRY: ghcr.io
-  # Le namespace = nom GitHub du propriétaire du repo (en minuscules)
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/opstrack
 
+# ─────────────────────────────────────────────────────────────────
+# JOB 1 — TESTS (CI)
+# Objectif : vérifier que le code compile et que tous les tests passent
+# Si ce job échoue → les jobs 2 et 3 ne démarrent pas (fail fast)
+# ─────────────────────────────────────────────────────────────────
 jobs:
-  build-and-push:
-    name: Build & Push all services
+  test:
+    name: Unit & Integration Tests
     runs-on: ubuntu-latest
-
-    # Permissions nécessaires pour écrire sur GHCR
-    permissions:
-      contents: read
-      packages: write
+    # fail-fast : si 1 service échoue, les autres sont annulés immédiatement
+    strategy:
+      fail-fast: true
+      matrix:
+        service:
+          - name: api-gateway
+            path: backend/api-gateway
+          - name: incident-service
+            path: backend/incident-service
+          - name: notification-service
+            path: backend/notification-service
 
     steps:
       # 1. Récupérer le code source
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Configurer Docker Buildx (builder avancé multi-plateforme)
+      # 2. Installer Node.js 20
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
+
+      # 3. Installer les dépendances (ci = strict, respecte le package-lock.json)
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ matrix.service.path }}
+
+      # 4. Tests unitaires (fichiers .spec.ts)
+      - name: Run unit tests with coverage
+        run: npm run test -- --coverage --passWithNoTests --ci
+        working-directory: ${{ matrix.service.path }}
+
+      # 5. Tests d'intégration (fichiers .e2e-spec.ts)
+      - name: Run e2e tests
+        run: npm run test:e2e -- --passWithNoTests
+        working-directory: ${{ matrix.service.path }}
+
+      # 6. Upload du rapport de couverture de code (artifact — conservé 30 jours)
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()   # upload même si les tests échouent (pour analyser les erreurs)
+        with:
+          name: coverage-${{ matrix.service.name }}
+          path: ${{ matrix.service.path }}/coverage/
+          retention-days: 30
+
+# ─────────────────────────────────────────────────────────────────
+# JOB 2 — SCAN SÉCURITÉ avec Trivy (CI)
+# Objectif : détecter les failles CVE dans les images avant de les pusher
+# Ne démarre qu'après la réussite complète du Job 1
+# ─────────────────────────────────────────────────────────────────
+  security-scan:
+    name: Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: test   # ← dépend du Job 1 — fail fast implicite
+    strategy:
+      fail-fast: true
+      matrix:
+        service:
+          - name: api-gateway
+            context: ./backend/api-gateway
+          - name: incident-service
+            context: ./backend/incident-service
+          - name: notification-service
+            context: ./backend/notification-service
+          - name: frontend
+            context: ./frontend
+
+    permissions:
+      contents: read
+      security-events: write   # pour publier les résultats dans l'onglet Security de GitHub
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Configurer Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 3. Se connecter à GHCR avec le token GitHub automatique
+      # Build l'image localement (sans push) pour pouvoir la scanner
+      - name: Build image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          push: false   # ← pas de push ici, juste build local pour le scan
+          tags: opstrack/${{ matrix.service.name }}:scan
+          load: true    # charge l'image dans le daemon Docker local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Scanner l'image avec Trivy
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'opstrack/${{ matrix.service.name }}:scan'
+          format: 'sarif'                  # format standard lisible par GitHub Security
+          output: 'trivy-${{ matrix.service.name }}.sarif'
+          severity: 'CRITICAL,HIGH'        # scanner uniquement les failles critiques et hautes
+          exit-code: '1'                   # fail fast : arrête le pipeline si faille trouvée
+          ignore-unfixed: true             # ignore les CVE sans correctif disponible
+
+      # Upload du rapport Trivy dans l'onglet Security de GitHub
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.service.name }}.sarif'
+
+      # Upload du rapport Trivy comme artifact téléchargeable
+      - name: Upload Trivy report as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report-${{ matrix.service.name }}
+          path: trivy-${{ matrix.service.name }}.sarif
+          retention-days: 30
+
+# ─────────────────────────────────────────────────────────────────
+# JOB 3 — BUILD & PUSH vers GHCR (CD — Continuous Delivery)
+# Objectif : livrer les images validées sur le registry
+# Ne démarre que si Job 1 ET Job 2 sont réussis
+# Ne s'exécute que sur push main (pas sur les pull requests)
+# ─────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    needs: security-scan   # ← dépend du Job 2 (qui dépend déjà du Job 1)
+    if: github.event_name == 'push'   # ← pas de push depuis une PR, seulement depuis main
+
+    permissions:
+      contents: read
+      packages: write   # nécessaire pour écrire sur GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Login sur GHCR — utilise GITHUB_TOKEN (secret automatique, pas besoin de le créer)
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # ← secret automatique GitHub
 
-      # 4. Build & Push — API Gateway
+      # Build & Push — API Gateway
       - name: Build and push api-gateway
         uses: docker/build-push-action@v5
         with:
@@ -51,7 +187,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 5. Build & Push — Incident Service
+      # Build & Push — Incident Service
       - name: Build and push incident-service
         uses: docker/build-push-action@v5
         with:
@@ -64,7 +200,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 6. Build & Push — Notification Service
+      # Build & Push — Notification Service
       - name: Build and push notification-service
         uses: docker/build-push-action@v5
         with:
@@ -77,7 +213,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 7. Build & Push — Frontend React/Nginx
+      # Build & Push — Frontend React/Nginx
       - name: Build and push frontend
         uses: docker/build-push-action@v5
         with:
