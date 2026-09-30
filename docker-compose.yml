@@ -22,6 +22,7 @@ services:
 
   # 2. Notification Service
   notification-service:
+    image: ghcr.io/oumaima650/opstrack/notification-service:latest
     build:
       context: ./backend/notification-service
       dockerfile: Dockerfile
@@ -35,6 +36,7 @@ services:
 
   # 3. Incident Service
   incident-service:
+    image: ghcr.io/oumaima650/opstrack/incident-service:latest
     build:
       context: ./backend/incident-service
       dockerfile: Dockerfile
@@ -60,6 +62,7 @@ services:
 
   # 4. API Gateway
   api-gateway:
+    image: ghcr.io/oumaima650/opstrack/api-gateway:latest
     build:
       context: ./backend/api-gateway
       dockerfile: Dockerfile
@@ -78,6 +81,7 @@ services:
 
   # 5. Frontend React Dashboard
   frontend:
+    image: ghcr.io/oumaima650/opstrack/frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile

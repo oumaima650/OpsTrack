@@ -1,0 +1,91 @@
+name: Build & Push Docker Images to GHCR
+
+# Déclenchement : à chaque push sur la branche main
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  # Le namespace = nom GitHub du propriétaire du repo (en minuscules)
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/opstrack
+
+jobs:
+  build-and-push:
+    name: Build & Push all services
+    runs-on: ubuntu-latest
+
+    # Permissions nécessaires pour écrire sur GHCR
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # 1. Récupérer le code source
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configurer Docker Buildx (builder avancé multi-plateforme)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Se connecter à GHCR avec le token GitHub automatique
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 4. Build & Push — API Gateway
+      - name: Build and push api-gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/api-gateway
+          file: ./backend/api-gateway/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/api-gateway:latest
+            ${{ env.IMAGE_PREFIX }}/api-gateway:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 5. Build & Push — Incident Service
+      - name: Build and push incident-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/incident-service
+          file: ./backend/incident-service/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/incident-service:latest
+            ${{ env.IMAGE_PREFIX }}/incident-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 6. Build & Push — Notification Service
+      - name: Build and push notification-service
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend/notification-service
+          file: ./backend/notification-service/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/notification-service:latest
+            ${{ env.IMAGE_PREFIX }}/notification-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 7. Build & Push — Frontend React/Nginx
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/frontend:latest
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
