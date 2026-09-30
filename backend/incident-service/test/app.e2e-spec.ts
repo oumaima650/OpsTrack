@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { of } from 'rxjs';
 import * as request from 'supertest';
@@ -15,6 +16,8 @@ describe('IncidentService (e2e)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [
+        // Fournit ConfigService à tous les modules du test
+        ConfigModule.forRoot({ isGlobal: true }),
         TypeOrmModule.forRoot({
           type: 'sqlite',
           database: ':memory:',
