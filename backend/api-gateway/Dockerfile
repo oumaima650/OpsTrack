@@ -1,5 +1,5 @@
 # Étape 1 : Build TypeScript -> JavaScript
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -8,7 +8,7 @@ COPY src ./src
 RUN npx @nestjs/cli build
 
 # Étape 2 : Image finale d'exécution (Production)
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
